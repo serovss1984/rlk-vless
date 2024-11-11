@@ -58,7 +58,6 @@ function showMainMenu(chatId) {
 
       const welcomeText = `Добро пожаловать, ${user.name || 'пользователь'}!\n` +
             `Ваш ID: ${chatId}\n` +
-            `Телефон: ${user.phone || 'не указан'}\n` +
             `Ваш баланс: ${Number(user.balance).toFixed(2)}\n` +
             `Количество устройств: ${devicesCount}\n` +
             `Абонентская плата: ${hourlyRate.toFixed(2)} за час\n` +
@@ -93,7 +92,7 @@ bot.on('callback_query', (query) => {
   }
 });
 
-//Меню данных
+// Меню данных
 function profile(chatId) {
   db.query('SELECT * FROM users WHERE chatId = ?', [chatId], (err, users) => {
     if (err) {
@@ -107,21 +106,69 @@ function profile(chatId) {
       const options = {
         reply_markup: {
           inline_keyboard: [
+            [
+              { text: 'Изменить имя', callback_data: 'edit_name' },
+              { text: 'Изменить телефон', callback_data: 'edit_phone' }
+            ],
             [{ text: 'Назад', callback_data: 'back_to_main' }]
           ]
         }
       };
 
-      // Формируем сообщение
-      const profile = `Имя: ${user.name || 'не указано'}\nТелефон: ${user.phone || 'не указан'}\n`;
-      
-      // Отправляем сообщение вместе с кнопкой "Назад"
+      const profile = `Данные необходимы для автоматического зачисления платежа по СБП.\n\nИмя: ${user.name || 'не указано'}\nТелефон: ${user.phone || 'не указан'}\n`;
       bot.sendMessage(chatId, profile, options);
     } else {
       bot.sendMessage(chatId, 'Пользователь не найден.');
     }
   });
 }
+
+// Обработчик для изменения имени и телефона
+bot.on('callback_query', query => {
+  const chatId = query.message.chat.id;
+
+  if (query.data === 'edit_name') {
+    bot.sendMessage(chatId, 'Введите имя в формате "Иван Иванович И":');
+    bot.once('message', msg => {
+      const newName = msg.text;
+      db.query('UPDATE users SET name = ? WHERE chatId = ?', [newName, chatId], (err) => {
+        if (err) {
+          bot.sendMessage(chatId, 'Произошла ошибка при обновлении имени.');
+        } else {
+          const options = {
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Назад', callback_data: 'back_to_profile' }]]
+            }
+          };
+          bot.sendMessage(chatId, 'Имя успешно обновлено.', options);
+        }
+      });
+    });
+  }
+
+  if (query.data === 'edit_phone') {
+    bot.sendMessage(chatId, 'Введите телефон начиная с +7 или +375:');
+    bot.once('message', msg => {
+      const newPhone = msg.text;
+      db.query('UPDATE users SET phone = ? WHERE chatId = ?', [newPhone, chatId], (err) => {
+        if (err) {
+          bot.sendMessage(chatId, 'Произошла ошибка при обновлении телефона.');
+        } else {
+          const options = {
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Назад', callback_data: 'back_to_profile' }]]
+            }
+          };
+          bot.sendMessage(chatId, 'Телефон успешно обновлен.', options);
+        }
+      });
+    });
+  }
+
+  if (query.data === 'back_to_profile') {
+    profile(chatId);
+  }
+});
 
 // Функция регистрации
 function register(chatId) {
