@@ -1,6 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./config/db');
 const moment = require('moment');
+const QRCode = require('qrcode');
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_API, { polling: true });
 
@@ -49,19 +50,44 @@ function showMainMenu(chatId) {
         }
       });
 
-      // Логика для вычисления абонентской платы (пример)
-      const planPrice = parseFloat(user.paymentAmount); // берем стоимость из поля paymentAmount
-      const hourlyRate = planPrice / (30 * 24); // делим на количество часов в месяце (30 дней * 24 часа)
+// Логика для вычисления абонентской платы (пример)
+const planPrice = parseFloat(user.paymentAmount); // берем стоимость из поля paymentAmount
+
+// Проверяем, установлен ли тариф
+let hourlyRate, dailyRate, daysLeft;
+
+if (planPrice > 0) {
+  hourlyRate = planPrice / (30 * 24); // делим на количество часов в месяце
+  dailyRate = planPrice / 30; // суточная абонентская плата
+  daysLeft = Math.floor(user.balance / dailyRate); // вычисляем, на сколько дней хватит средств
+} else {
+  hourlyRate = 0;
+  dailyRate = 0;
+  daysLeft = Infinity; // если план бесплатный, средства "хватит на неограниченное время"
+}
+
+// Функция для морфологии "день", "дня", "дней"
+function getDayWord(num) {
+  const lastDigit = num % 10;
+  const lastTwoDigits = num % 100;
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return 'дней';
+  if (lastDigit === 1) return 'день';
+  if (lastDigit >= 2 && lastDigit <= 4) return 'дня';
+  return 'дней';
+}
 
 // Приветственное сообщение
-      const lockedStatus = user.locked === 1 ? 'Да' : 'Нет';
+const lockedStatus = user.locked === 1 ? 'Да' : 'Нет';
 
-      const welcomeText = `Добро пожаловать, ${user.name || 'пользователь'}!\n` +
-            `Ваш ID: ${chatId}\n` +
-            `Ваш баланс: ${Number(user.balance).toFixed(2)}\n` +
-            `Количество устройств: ${devicesCount}\n` +
-            `Абонентская плата: ${hourlyRate.toFixed(2)} за час\n` +
-            `Заблокирован: ${lockedStatus}`;
+const daysLeftText = daysLeft === Infinity ? 'неограниченное время' : `${daysLeft} ${getDayWord(daysLeft)}`;
+
+const welcomeText = `Добро пожаловать, ${user.name || 'пользователь'}!\n` +
+      `Ваш ID: ${chatId}\n` +
+      `Ваш баланс: ${Number(user.balance).toFixed(2)}\n` +
+      `Количество устройств: ${devicesCount}\n` +
+      `Абонентская плата: ${hourlyRate.toFixed(2)} за час\n` +
+      `Средств хватит на ${daysLeftText}\n` +
+      `Заблокирован: ${lockedStatus}`;
 
       const options = {
         reply_markup: {
@@ -203,3 +229,97 @@ function register(chatId) {
   });
 }
 
+
+
+
+
+
+
+
+function devices(chatId) {
+  db.query('SELECT `vless-1`, `vless-2`, `vless-3`, `vless-4`, `vless-5` FROM users WHERE chatId = ?', [chatId], (err, results) => {
+    if (err) {
+      bot.sendMessage(chatId, 'Произошла ошибка при получении данных устройств.');
+      return;
+    }
+
+    if (results.length > 0) {
+      const userDevices = results[0];
+      const deviceButtons = [];
+
+      Object.keys(userDevices).forEach((deviceKey) => {
+        const deviceValue = userDevices[deviceKey];
+        if (deviceValue && deviceValue !== '0') {
+          deviceButtons.push([
+            { text: `Посмотреть ${deviceKey}`, callback_data: `view_${deviceKey}` },
+            { text: `Удалить ${deviceKey}`, callback_data: `delete_${deviceKey}` }
+          ]);
+        } else {
+          deviceButtons.push([
+            { text: `Добавить ${deviceKey}`, callback_data: `add_${deviceKey}` }
+          ]);
+        }
+      });
+
+      deviceButtons.push([{ text: 'Назад', callback_data: 'back_to_main' }]);
+
+      const options = {
+        reply_markup: {
+          inline_keyboard: deviceButtons
+        }
+      };
+
+      bot.sendMessage(chatId, 'Ваши устройства:', options);
+    } else {
+      bot.sendMessage(chatId, 'Пользователь не найден.');
+    }
+  });
+}
+
+bot.on('callback_query', (query) => {
+  const chatId = query.message.chat.id;
+  const action = query.data;
+
+  if (action.startsWith('view_')) {
+    const deviceKey = action.split('_')[1];
+
+    db.query(`SELECT \`${deviceKey}\` FROM users WHERE chatId = ?`, [chatId], (err, results) => {
+      if (err || results.length === 0) {
+        bot.sendMessage(chatId, 'Произошла ошибка при получении данных устройства.');
+        return;
+      }
+
+      const deviceUrl = results[0][deviceKey];
+      if (!deviceUrl || deviceUrl === '0') {
+        bot.sendMessage(chatId, 'Данные для устройства не найдены.');
+        return;
+      }
+
+      QRCode.toDataURL(deviceUrl, (err, qrCodeDataUrl) => {
+        if (err) {
+          bot.sendMessage(chatId, 'Ошибка при генерации QR-кода.');
+          return;
+        }
+
+        // Извлекаем данные после 'base64,' и создаем буфер
+        const base64Data = qrCodeDataUrl.replace(/^data:image\/png;base64,/, "");
+        const qrCodeBuffer = Buffer.from(base64Data, 'base64');
+          bot.sendMessage(chatId, `Данные для устройства ${deviceKey}:\n${deviceUrl}`);
+          bot.sendPhoto(chatId, qrCodeBuffer, {
+          reply_markup: {
+          inline_keyboard: [
+          [{ text: 'Назад', callback_data: 'devices' }]
+        ]
+      }
+    });
+  });
+});
+
+  } else if (action.startsWith('add_')) {
+    const deviceKey = action.split('_')[1];
+    bot.sendMessage(chatId, `Функция добавления устройства ${deviceKey} пока недоступна.`);
+
+  } else if (action === 'back_to_profile') {
+    profile(chatId);
+  }
+});
