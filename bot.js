@@ -10,18 +10,6 @@ bot.onText(/\/start/, (msg) => {
   showMainMenu(chatId);
 });
 
-// Команда /balance для получения баланса пользователя
-bot.onText(/\/balance/, (msg) => {
-  const chatId = msg.chat.id;
-  showBalance(chatId);
-});
-
-// Обработчик команды /id
-bot.onText(/\/id/, (msg) => {
-  const chatId = msg.chat.id;
-  showId(chatId);
-});
-
 // Функция для показа главного меню с проверкой регистрации
 function showMainMenu(chatId) {
   db.query('SELECT * FROM users WHERE chatId = ?', [chatId], (err, users) => {
@@ -43,7 +31,7 @@ function showMainMenu(chatId) {
         }
       };
 
-      bot.sendMessage(chatId, 'Добро пожаловать!\nПожалуйста, зарегистрируйтесь, чтобы продолжить:', options);
+      bot.sendMessage(chatId, 'Добро пожаловать!\nПожалуйста, зарегистрируйтесь, чтобы продолжить.', options);
 
     } else {
       // Если пользователь найден, показываем другое меню с приветствием и кнопками
@@ -65,21 +53,22 @@ function showMainMenu(chatId) {
       const planPrice = parseFloat(user.paymentAmount); // берем стоимость из поля paymentAmount
       const hourlyRate = planPrice / (30 * 24); // делим на количество часов в месяце (30 дней * 24 часа)
 
-      // Приветственное сообщение
+// Приветственное сообщение
+      const lockedStatus = user.locked === 1 ? 'Да' : 'Нет';
+
       const welcomeText = `Добро пожаловать, ${user.name || 'пользователь'}!\n` +
-        `Ваш ID: ${chatId}\n` +
-        `Телефон: ${user.phone || 'не указан'}\n` +
-        `Ваш баланс: ${Number(user.balance).toFixed(2)}\n` +
-        `Количество устройств: ${devicesCount}\n` +
-        `Абонентская плата: ${hourlyRate.toFixed(2)} за час`;
+            `Ваш ID: ${chatId}\n` +
+            `Телефон: ${user.phone || 'не указан'}\n` +
+            `Ваш баланс: ${Number(user.balance).toFixed(2)}\n` +
+            `Количество устройств: ${devicesCount}\n` +
+            `Абонентская плата: ${hourlyRate.toFixed(2)} за час\n` +
+            `Заблокирован: ${lockedStatus}`;
 
       const options = {
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'Узнать свой ID', callback_data: 'show_id' }],
-            [{ text: 'Баланс/Инфо', callback_data: 'show_balance' }],
             [{ text: 'Мои данные', callback_data: 'profile' }],
-            [{ text: 'Удалить аккаунт', callback_data: 'delete_account' }]
+            [{ text: 'Мои устройства', callback_data: 'devices' }]
           ]
         }
       };
@@ -93,56 +82,16 @@ function showMainMenu(chatId) {
 bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id;
   const action = query.data;
-  if (action === 'show_id') {
-    showId(chatId);
-  } else if (action === 'show_balance') {
-    showBalance(chatId);
-  } else if (action === 'profile') {
+  if (action === 'profile') {
     profile(chatId);
   } else if (action === 'back_to_main') {
     showMainMenu(chatId);
   } else if (action === 'register') {
     register(chatId);
+  } else if (action === 'devices') {
+    devices(chatId);
   }
 });
-
-// Функция для показа ID
-function showId(chatId) {
-  const options = {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: 'Назад', callback_data: 'back_to_main' }]
-      ]
-    }
-  };
-  bot.sendMessage(chatId, `Ваш chatId: \`${chatId}\``, { parse_mode: 'MarkdownV2', ...options });
-}
-
-// Функция для показа баланса
-function showBalance(chatId) {
-  db.query('SELECT * FROM users WHERE chatId = ?', [chatId], (err, users) => {
-    if (err) {
-      bot.sendMessage(chatId, 'Произошла ошибка при получении информации.');
-      return;
-    }
-
-    if (users.length > 0) {
-      const user = users[0];
-      const balanceMessage = `Ваш баланс: ${Number(user.balance).toFixed(2)}`;
-
-      const options = {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Назад', callback_data: 'back_to_main' }]
-          ]
-        }
-      };
-      bot.sendMessage(chatId, balanceMessage, options);
-    } else {
-      bot.sendMessage(chatId, 'Пользователь не найден.');
-    }
-  });
-}
 
 //Меню данных
 function profile(chatId) {
@@ -164,7 +113,7 @@ function profile(chatId) {
       };
 
       // Формируем сообщение
-      const profile = `Имя: ${user.name}\nТелефон: ${user.phone}\n`;
+      const profile = `Имя: ${user.name || 'не указано'}\nТелефон: ${user.phone || 'не указан'}\n`;
       
       // Отправляем сообщение вместе с кнопкой "Назад"
       bot.sendMessage(chatId, profile, options);
@@ -183,5 +132,27 @@ function register(chatId) {
       ]
     }
   };
-  bot.sendMessage(chatId, `Text`, options);
+
+  // Начинаем процесс регистрации, сразу записываем данные с null
+  const registrationDate = moment().format('YYYY-MM-DD HH:mm:ss');
+  const lastPaymentDate = registrationDate; // Дата последнего платежа при регистрации
+  const lastBillDate = registrationDate; // Дата последнего счета
+
+  const query = `INSERT INTO users (chatId, phone, lang, name, registrationDate, lastPaymentDate, paymentAmount, balance, lastBillDate, locked, lockedDate, files, plan_id, \`vless-1\`, \`vless-2\`, \`vless-3\`, \`vless-4\`, \`vless-5\`) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const values = [chatId, null, null, null, registrationDate, lastPaymentDate, 0, 0, lastBillDate, 1, registrationDate, null, 2, 0, 0, 0, 0, 0];
+  
+  db.query(query, values, (err) => {
+    if (err) {
+      bot.sendMessage(chatId, 'Произошла ошибка при регистрации.');
+      console.error('Ошибка при записи в базу данных:', err);
+      return;
+    }
+
+    bot.sendMessage(chatId, 'Вы успешно зарегистрированы!');
+
+    // После регистрации возвращаем пользователя в главное меню
+    showMainMenu(chatId);
+  });
 }
+
