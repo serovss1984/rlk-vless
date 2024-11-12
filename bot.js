@@ -229,13 +229,6 @@ function register(chatId) {
   });
 }
 
-
-
-
-
-
-
-
 function devices(chatId) {
   db.query('SELECT `vless-1`, `vless-2`, `vless-3`, `vless-4`, `vless-5` FROM users WHERE chatId = ?', [chatId], (err, results) => {
     if (err) {
@@ -304,8 +297,9 @@ bot.on('callback_query', (query) => {
         // Извлекаем данные после 'base64,' и создаем буфер
         const base64Data = qrCodeDataUrl.replace(/^data:image\/png;base64,/, "");
         const qrCodeBuffer = Buffer.from(base64Data, 'base64');
-          bot.sendMessage(chatId, `Данные для устройства ${deviceKey}:\n${deviceUrl}`);
           bot.sendPhoto(chatId, qrCodeBuffer, {
+          caption: `Данные для устройства ${deviceKey}:\n<pre>${deviceUrl}</pre>`,
+          parse_mode: 'HTML',
           reply_markup: {
           inline_keyboard: [
           [{ text: 'Назад', callback_data: 'devices' }]
@@ -317,7 +311,25 @@ bot.on('callback_query', (query) => {
 
   } else if (action.startsWith('add_')) {
     const deviceKey = action.split('_')[1];
-    bot.sendMessage(chatId, `Функция добавления устройства ${deviceKey} пока недоступна.`);
+
+          const options = {
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Назад', callback_data: 'devices' }]]
+            }
+          };
+    console.log('кнопка', deviceKey);
+    bot.sendMessage(chatId, `Функция добавления устройства ${deviceKey} пока недоступна.`, options);
+
+  }  else if (action.startsWith('delete_')) {
+    const deviceKey = action.split('_')[1];
+
+          const options = {
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Назад', callback_data: 'devices' }]]
+            }
+          };
+    console.log('кнопка', deviceKey);
+    bot.sendMessage(chatId, `Функция удаления устройства ${deviceKey} пока недоступна.`, options);
 
   } else if (action === 'back_to_profile') {
     profile(chatId);
