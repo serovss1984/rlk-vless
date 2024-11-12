@@ -211,9 +211,9 @@ function register(chatId) {
   const lastPaymentDate = registrationDate; // Дата последнего платежа при регистрации
   const lastBillDate = registrationDate; // Дата последнего счета
 
-  const query = `INSERT INTO users (chatId, phone, lang, name, registrationDate, lastPaymentDate, paymentAmount, balance, lastBillDate, locked, lockedDate, files, plan_id, \`vless-1\`, \`vless-2\`, \`vless-3\`, \`vless-4\`, \`vless-5\`) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-  const values = [chatId, null, null, null, registrationDate, lastPaymentDate, 0, 0, lastBillDate, 1, registrationDate, null, 2, 0, 0, 0, 0, 0];
+  const query = `INSERT INTO users (chatId, phone, lang, name, registrationDate, lastPaymentDate, paymentAmount, balance, lastBillDate, locked, lockedDate, files, plan_id, \`vless-1\`, \`vless-2\`, \`vless-3\`, \`vless-4\`, \`vless-5\`. admin) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const values = [chatId, null, null, null, registrationDate, lastPaymentDate, 0, 0, lastBillDate, 1, registrationDate, null, 2, 0, 0, 0, 0, 0, 0];
   
   db.query(query, values, (err) => {
     if (err) {
@@ -333,5 +333,229 @@ bot.on('callback_query', (query) => {
 
   } else if (action === 'back_to_profile') {
     profile(chatId);
+  }
+});
+
+
+
+
+
+
+
+
+
+// Обработчик команды /admin с проверкой прав администратора
+bot.onText(/\/admin/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  try {
+    const isAdminUser = await isAdmin(chatId);
+    if (isAdminUser) {
+      admin(chatId); // Запуск административного меню
+    } else {
+      bot.sendMessage(chatId, 'У вас нет прав для доступа к этой команде.');
+    }
+  } catch (error) {
+    console.error('Ошибка проверки прав администратора:', error);
+    bot.sendMessage(chatId, 'Произошла ошибка при проверке ваших прав. Пожалуйста, попробуйте позже.');
+  }
+});
+
+// Функция проверки, является ли пользователь администратором
+function isAdmin(chatId) {
+  return new Promise((resolve, reject) => {
+    const query = 'SELECT admin FROM users WHERE chatId = ?';
+    db.query(query, [chatId], (err, results) => {
+      if (err) {
+        console.error('Ошибка выполнения запроса к базе данных:', err);
+        reject(err);
+      } else if (results.length > 0 && results[0].admin === 1) {
+        console.log('Пользователь является администратором.');
+        resolve(true);
+      } else {
+        console.log('Пользователь не является администратором.');
+        resolve(false);
+      }
+    });
+  });
+}
+
+// Функция для получения пользователя по chatId
+async function getUserByChatId(chatId) {
+  const query = 'SELECT * FROM users WHERE chatId = ?';
+  return new Promise((resolve, reject) => {
+    db.query(query, [chatId], (err, results) => {
+      if (err) {
+        console.error('Ошибка выполнения запроса к базе данных:', err);
+        reject(err);
+      } else if (results.length > 0) {
+        resolve(results[0]);
+      } else {
+        reject(new Error('Пользователь не найден'));
+      }
+    });
+  });
+}
+
+// Функция для обновления баланса пользователя
+async function updateBalance(chatId, paymentAmount) {
+  const user = await getUserByChatId(chatId);
+
+  const newBalance = parseFloat(user.balance) + paymentAmount;
+
+  const query = `
+    UPDATE users 
+    SET balance = ?, lastPaymentDate = NOW(), paymentAmount = ? 
+    WHERE chatId = ?`;
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [newBalance, paymentAmount, chatId], (err) => {
+      if (err) {
+        console.error('Ошибка обновления баланса:', err);
+        reject(err);
+      } else {
+        resolve(newBalance);
+      }
+    });
+  });
+}
+
+
+
+
+
+// Обработчик функции admin
+function admin(chatId) {
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Список пользователей', callback_data: 'user_list_0' }],  // Начнем с 0 страницы
+        [{ text: 'Данные пользователя', callback_data: 'user_data' }]
+      ]
+    }
+  };
+  bot.sendMessage(chatId, 'Выберите действие:', options);
+}
+
+// Функция для получения пользователей
+async function getUsers(offset, limit) {
+  const query = 'SELECT chatId, balance FROM users LIMIT ? OFFSET ?';
+  return new Promise((resolve, reject) => {
+    db.query(query, [limit, offset], (err, results) => {
+      if (err) {
+        console.error('Ошибка выполнения запроса к базе данных:', err);
+        reject(err);
+      } else {
+        console.log('Результат запроса пользователей:', results); // Отладка
+        resolve(results);
+      }
+    });
+  });
+}
+
+// Обработчик списка пользователей и кнопок
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const action = query.data;
+
+  if (action.startsWith('user_list_')) {
+    const page = parseInt(action.split('_')[2]);
+    const usersPerPage = 10;
+    const offset = page * usersPerPage;
+
+    try {
+      const users = await getUsers(offset, usersPerPage);
+
+      if (!Array.isArray(users) || users.length === 0) {
+        bot.sendMessage(chatId, 'Список пользователей пуст или вы на последней странице.');
+        return;
+      }
+
+      let message = 'Список пользователей:\n';
+      users.forEach((user, index) => {
+        const balance = parseFloat(user.balance).toFixed(2);
+        message += `Id: \`${user.chatId}\`, balance: ${balance}\n`;
+      });
+
+      const navigationButtons = [];
+      if (page > 0) {
+        navigationButtons.push({ text: 'Назад', callback_data: `user_list_${page - 1}` });
+      }
+      if (users.length === usersPerPage) {
+        navigationButtons.push({ text: 'Вперед', callback_data: `user_list_${page + 1}` });
+      }
+
+      const options = {
+        reply_markup: {
+          inline_keyboard: [
+            navigationButtons,
+            [{ text: 'Вернуться в меню', callback_data: 'back_to_admin' }]
+          ]
+        },
+        parse_mode: 'Markdown'  // Устанавливаем режим Markdown для работы ссылки
+      };
+      bot.sendMessage(chatId, message, options);
+
+    } catch (err) {
+      console.error('Ошибка получения пользователей:', err);
+      bot.sendMessage(chatId, 'Произошла ошибка при получении списка пользователей.');
+    }
+  }
+
+  // Обработчик для кнопки "Вернуться в меню"
+  if (action === 'back_to_admin') {
+    admin(chatId); // Возвращаем в меню администратора
+  }
+
+  if (action === 'user_data') {
+    bot.sendMessage(chatId, 'Введите chatId пользователя, данные которого нужно изменить:');
+    bot.once('message', async (msg) => {
+      const userChatId = msg.text;
+      try {
+        const user = await getUserByChatId(userChatId);
+        let message = `Данные пользователя ${user.chatId}:\n`;
+        message += `Баланс: ${user.balance}\n`;
+        message += `Последний платеж: ${user.lastPaymentDate}\n`;
+        message += `Сумма последнего платежа: ${user.paymentAmount}\n`;
+
+        const options = {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Изменить баланс', callback_data: 'change_balance_' + user.chatId }],
+              [{ text: 'Блокировка', callback_data: 'block_user_' + user.chatId }]
+            ]
+          }
+        };
+        bot.sendMessage(chatId, message, options);
+      } catch (err) {
+        bot.sendMessage(chatId, 'Ошибка получения данных пользователя.');
+      }
+    });
+  }
+
+  if (action.startsWith('change_balance_')) {
+    const userChatId = action.split('_')[2];
+    bot.sendMessage(chatId, `Введите сумму платежа для пользователя ${userChatId} (может быть отрицательной):`);
+    bot.once('message', async (msg) => {
+      const paymentAmount = parseFloat(msg.text);
+      if (isNaN(paymentAmount)) {
+        bot.sendMessage(chatId, 'Некорректная сумма платежа.');
+        return;
+      }
+
+      try {
+        const newBalance = await updateBalance(userChatId, paymentAmount);
+        bot.sendMessage(chatId, `Баланс пользователя ${userChatId} успешно обновлен. Новый баланс: ${newBalance}`);
+      } catch (err) {
+        bot.sendMessage(chatId, 'Ошибка обновления баланса.');
+      }
+    });
+  }
+
+  if (action.startsWith('block_user_')) {
+    const userChatId = action.split('_')[2];
+    // Логика блокировки пользователя
+    bot.sendMessage(chatId, `Пользователь ${userChatId} был заблокирован.`);
+    // Возможно, здесь будет код для блокировки в базе данных
   }
 });

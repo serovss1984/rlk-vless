@@ -16,4 +16,4 @@ connection.connect((err) => {
   console.log('Успешно подключено к базе данных');
 });
 
-module.exports = connection;
+module.exports = connection;        
