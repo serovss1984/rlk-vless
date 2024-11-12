@@ -336,14 +336,6 @@ bot.on('callback_query', (query) => {
   }
 });
 
-
-
-
-
-
-
-
-
 // Обработчик команды /admin с проверкой прав администратора
 bot.onText(/\/admin/, async (msg) => {
   const chatId = msg.chat.id;
@@ -419,10 +411,6 @@ async function updateBalance(chatId, paymentAmount) {
     });
   });
 }
-
-
-
-
 
 // Обработчик функции admin
 function admin(chatId) {
@@ -502,11 +490,6 @@ bot.on('callback_query', async (query) => {
     }
   }
 
-  // Обработчик для кнопки "Вернуться в меню"
-  if (action === 'back_to_admin') {
-    admin(chatId); // Возвращаем в меню администратора
-  }
-
   if (action === 'user_data') {
     bot.sendMessage(chatId, 'Введите chatId пользователя, данные которого нужно изменить:');
     bot.once('message', async (msg) => {
@@ -517,20 +500,28 @@ bot.on('callback_query', async (query) => {
         message += `Баланс: ${user.balance}\n`;
         message += `Последний платеж: ${user.lastPaymentDate}\n`;
         message += `Сумма последнего платежа: ${user.paymentAmount}\n`;
+        message += `Блокировка: ${user.locked}\n`;
 
-        const options = {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: 'Изменить баланс', callback_data: 'change_balance_' + user.chatId }],
-              [{ text: 'Блокировка', callback_data: 'block_user_' + user.chatId }]
-            ]
-          }
-        };
+      const options = {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Изменить баланс', callback_data: 'change_balance_' + user.chatId }],
+            [{ text: 'Блокировка', callback_data: 'block_user_' + user.chatId }],
+            [{ text: 'Назад', callback_data: 'back_to_admin' }]  // Кнопка назад
+          ]
+        }
+      };
+
         bot.sendMessage(chatId, message, options);
       } catch (err) {
         bot.sendMessage(chatId, 'Ошибка получения данных пользователя.');
       }
     });
+  }
+
+  // Обработчик для кнопки "Вернуться в меню"
+  if (action === 'back_to_admin') {
+    admin(chatId); // Возвращаем в меню администратора
   }
 
   if (action.startsWith('change_balance_')) {
@@ -551,11 +542,82 @@ bot.on('callback_query', async (query) => {
       }
     });
   }
+});
+
+// Обработчик callback_query для блокировки
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const action = query.data;
 
   if (action.startsWith('block_user_')) {
     const userChatId = action.split('_')[2];
-    // Логика блокировки пользователя
-    bot.sendMessage(chatId, `Пользователь ${userChatId} был заблокирован.`);
-    // Возможно, здесь будет код для блокировки в базе данных
+    
+    // Получаем текущий статус блокировки пользователя
+    try {
+      const user = await getUserByChatId(chatId);
+      let message = `Статус блокировки пользователя ${user.chatId}:\n`;
+      message += `Заблокирован: ${user.locked === 1 ? 'Да' : 'Нет'}\n`;
+      message += `Дата блокировки: ${user.lockedDate ? user.lockedDate : 'Не установлена'}\n`;
+
+      const options = {
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: user.locked === 0 ? 'Заблокировать' : 'Разблокировать',
+              callback_data: 'change_block_status_' + user.chatId
+            }],
+            [{ text: 'Назад', callback_data: 'back_to_admin' }]
+          ]
+        }
+      };
+      bot.sendMessage(chatId, message, options);
+    } catch (err) {
+      bot.sendMessage(chatId, 'Ошибка получения данных пользователя.');
+    }
   }
+
+if (action.startsWith('change_block_status_')) {
+  const userChatId = action.split('_')[2];
+  
+  try {
+    const user = await getUserByChatId(chatId);
+    
+    let updateQuery;
+    if (user.locked === 0) {
+      // Если заблокировать, меняем на 1 и устанавливаем текущую дату для lockedDate
+      updateQuery = 'UPDATE users SET locked = 1, lockedDate = NOW() WHERE chatId = ?';
+    } else {
+      // Если разблокировать, меняем на 0 и не трогаем lockedDate
+      updateQuery = 'UPDATE users SET locked = 0 WHERE chatId = ?';
+    }
+
+    console.log('Отправка запроса в базу данных для обновления статуса блокировки:');
+    console.log('chatId:', chatId);
+    console.log('locked:', user.locked === 0 ? 1 : 0);
+    
+    db.query(updateQuery, [chatId], (err) => {
+      if (err) {
+        console.error('Ошибка изменения статуса блокировки:', err);
+        bot.sendMessage(chatId, 'Произошла ошибка при изменении статуса блокировки.');
+      } else {
+        const newStatus = user.locked === 0 ? 'заблокирован' : 'разблокирован';
+        bot.sendMessage(chatId, `Пользователь ${chatId} теперь ${newStatus}.`);
+        
+        // Повторно показываем информацию о пользователе
+        bot.sendMessage(chatId, `Статус пользователя ${chatId} обновлен.`, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Назад', callback_data: 'back_to_admin' }]
+            ]
+          }
+        });
+      }
+    });
+  } catch (err) {
+    console.error('Ошибка получения данных пользователя для изменения статуса блокировки:', err);
+    bot.sendMessage(chatId, 'Ошибка при изменении статуса блокировки.');
+  }
+}
+
+
 });
