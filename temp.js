@@ -2,11 +2,15 @@ const axios = require('axios');
 require('dotenv').config();
 
 // Путь к серверу
-const baseURL = 'http://127.0.0.1:2053';
+//const baseURL = 'http://127.0.0.1:2053';
+const baseURL = 'http://nl-del.rollyk.ru:2053';
 
 // Данные для авторизации из .env
-const username = process.env.USERNAME;
-const password = process.env.PASSWORD;
+//const username = process.env.USERNAME;
+//const password = process.env.PASSWORD;
+
+const username = 'GG6UFOIatP';
+const password = 'joEcafmh9k';
 
 // Функция авторизации
 async function login() {

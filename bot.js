@@ -336,6 +336,10 @@ bot.on('callback_query', (query) => {
   }
 });
 
+
+
+
+
 // Обработчик команды /admin с проверкой прав администратора
 bot.onText(/\/admin/, async (msg) => {
   const chatId = msg.chat.id;
@@ -406,6 +410,14 @@ async function updateBalance(chatId, paymentAmount) {
         console.error('Ошибка обновления баланса:', err);
         reject(err);
       } else {
+
+
+        const message = `Ваш баланс успешно обновлен! Новая сумма: ${newBalance.toFixed(2)}. Сумма вашего платежа: ${paymentAmount.toFixed(2)}. Спасибо за пополнение!`;
+        
+        bot.sendMessage(chatId, message)
+
+
+
         resolve(newBalance);
       }
     });
@@ -500,7 +512,6 @@ bot.on('callback_query', async (query) => {
         message += `Баланс: ${user.balance}\n`;
         message += `Последний платеж: ${user.lastPaymentDate}\n`;
         message += `Сумма последнего платежа: ${user.paymentAmount}\n`;
-        message += `Блокировка: ${user.locked}\n`;
 
       const options = {
         reply_markup: {
@@ -619,5 +630,68 @@ if (action.startsWith('change_block_status_')) {
   }
 }
 
+// Функция для удаления устройства
+function deleteDevice(chatId, deviceKey) {
+  db.query(`SELECT \`${deviceKey}\` FROM users WHERE chatId = ?`, [chatId], (err, results) => {
+    if (err || results.length === 0) {
+      bot.sendMessage(chatId, 'Произошла ошибка при получении данных устройства.');
+      return;
+    }
+
+    const deviceUrl = results[0][deviceKey];
+    if (!deviceUrl || deviceUrl === '0') {
+      bot.sendMessage(chatId, 'Устройство не найдено.');
+      return;
+    }
+
+    // Извлекаем clientId из URL (UUID в формате xxxx-xxxx-xxxx-xxxx)
+    const clientIdMatch = deviceUrl.match(/vless:\/\/([a-f0-9-]+)@/);
+    if (!clientIdMatch) {
+      bot.sendMessage(chatId, 'Не удалось извлечь clientId.');
+      return;
+    }
+    const clientId = clientIdMatch[1];
+
+    // Запрос на удаление устройства через API 3x-ui
+    const apiEndpoint = `http://nl-del.rollyk.ru:2053/login`; // Замените на URL вашего API
+    const options = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId })
+    };
+
+    fetch(apiEndpoint, options)
+      .then(response => response.json())
+      .then(apiResult => {
+        if (apiResult.success) {
+          // Успешное удаление, обновляем базу данных
+          db.query(`UPDATE users SET \`${deviceKey}\` = '0' WHERE chatId = ?`, [chatId], (err) => {
+            if (err) {
+              bot.sendMessage(chatId, 'Произошла ошибка при обновлении данных.');
+            } else {
+              bot.sendMessage(chatId, `Устройство ${deviceKey} успешно удалено.`);
+            }
+          });
+        } else {
+          bot.sendMessage(chatId, 'Не удалось удалить устройство через API.');
+        }
+      })
+      .catch(err => {
+        console.error('Ошибка при обращении к API:', err);
+        bot.sendMessage(chatId, 'Произошла ошибка при обращении к API.');
+      });
+  });
+}
+
+// Обработчик для удаления устройства
+bot.on('callback_query', (query) => {
+  const chatId = query.message.chat.id;
+  const action = query.data;
+
+  if (action.startsWith('delete_')) {
+    const deviceKey = action.split('_')[1];
+    deleteDevice(chatId, deviceKey);
+  }
+});
 
 });

@@ -1,0 +1,239 @@
+{
+  "log": {
+    "access": "none",
+    "dnsLog": false,
+    "error": "",
+    "loglevel": "warning",
+    "maskAddress": ""
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "outboundTag": "blocked",
+        "ip": [
+          "geoip:private"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "blocked",
+        "protocol": [
+          "bittorrent"
+        ]
+      }
+    ]
+  },
+  "dns": null,
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 62789,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      },
+      "streamSettings": null,
+      "tag": "api",
+      "sniffing": null,
+      "allocate": null
+    },
+    {
+      "listen": null,
+      "port": 40443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "6497983961-1",
+            "flow": "",
+            "id": "19bd6da5-32ad-4408-bb9d-8229ca4aae3c"
+          },
+          {
+            "email": "2515644-1",
+            "flow": "",
+            "id": "59fab01f-33cf-4f7d-a3a1-02f27f995fef"
+          },
+          {
+            "email": "6497983961-2",
+            "flow": "",
+            "id": "08bb44c9-e088-4283-8b90-e5fd536e1608"
+          },
+          {
+            "email": "2114711392-1",
+            "flow": "",
+            "id": "ac638fa7-20fb-44d9-9184-0edd62f62be4"
+          },
+          {
+            "email": "6001289404-1",
+            "flow": "",
+            "id": "ae7c249f-4939-4dce-bf08-2fae5c68e65a"
+          },
+          {
+            "email": "6497983961-3",
+            "flow": "",
+            "id": "e79c133d-074f-4fb3-8de9-b89ef37af618"
+          },
+          {
+            "email": "1014322927-1",
+            "flow": "",
+            "id": "14b11141-76f4-4354-acda-6f248e0c4c40"
+          },
+          {
+            "email": "1014322927-2",
+            "flow": "",
+            "id": "b95d5ad3-1bea-465a-9548-5168a9c36f4b"
+          },
+          {
+            "email": "1014322927-3",
+            "flow": "",
+            "id": "f096b30c-5f9c-49a6-9edc-17e2ca1820b3"
+          },
+          {
+            "email": "1014322927-4",
+            "flow": "",
+            "id": "9b63bf5c-05a7-416c-a4b2-06ee9c3fee9b"
+          },
+          {
+            "email": "1014322927-5",
+            "flow": "",
+            "id": "e258be79-d51a-42a6-9162-c82c9643b379"
+          },
+          {
+            "email": "758966220-1",
+            "flow": "",
+            "id": "85571752-5ee7-41fa-9b1c-e8fd8a718115"
+          },
+          {
+            "email": "758966220-2",
+            "flow": "",
+            "id": "dbc362da-3ef4-483c-bfa6-c289ebadd315"
+          },
+          {
+            "email": "758966220-3",
+            "flow": "",
+            "id": "99fdaa2c-5c69-4c99-98cd-0256e0d1e19d"
+          },
+          {
+            "email": "758966220-4",
+            "flow": "",
+            "id": "a096681a-8613-4c95-8ed9-6c626f2a135a"
+          },
+          {
+            "email": "2515644-2",
+            "flow": "",
+            "id": "a4f879c9-0442-4bfa-8905-d34e08eade66"
+          },
+          {
+            "email": "398196069-1",
+            "flow": "",
+            "id": "53bbddf9-18f8-4e8e-9df0-a8fbfa706001"
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": []
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "dl.google.com:443",
+          "maxClient": "",
+          "maxTimediff": 0,
+          "minClient": "",
+          "privateKey": "yIaFnplEC2jgHNFpg8vlkjKIGWoZIf_BpSHzP4UhOy4",
+          "serverNames": [
+            "dl.google.com"
+          ],
+          "shortIds": [
+            "7cec4a13b1c76360",
+            "b3413ecf1d",
+            "885913",
+            "30398d15",
+            "6732dbb61e5a43",
+            "2620",
+            "96",
+            "819fc9c1cf90"
+          ],
+          "show": false,
+          "xver": 0
+        },
+        "security": "reality",
+        "tcpSettings": {
+          "acceptProxyProtocol": false,
+          "header": {
+            "type": "none"
+          }
+        }
+      },
+      "tag": "inbound-40443",
+      "sniffing": {
+        "enabled": false,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic",
+          "fakedns"
+        ],
+        "metadataOnly": false,
+        "routeOnly": false
+      },
+      "allocate": {
+        "strategy": "always",
+        "refresh": 5,
+        "concurrency": 3
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIP",
+        "redirect": "",
+        "noises": []
+      }
+    },
+    {
+      "tag": "blocked",
+      "protocol": "blackhole",
+      "settings": {}
+    }
+  ],
+  "transport": null,
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserDownlink": true,
+        "statsUserUplink": true
+      }
+    },
+    "system": {
+      "statsInboundDownlink": true,
+      "statsInboundUplink": true,
+      "statsOutboundDownlink": true,
+      "statsOutboundUplink": true
+    }
+  },
+  "api": {
+    "tag": "api",
+    "services": [
+      "HandlerService",
+      "LoggerService",
+      "StatsService"
+    ]
+  },
+  "stats": {},
+  "reverse": null,
+  "fakedns": null,
+  "observatory": null,
+  "burstObservatory": null
+}
