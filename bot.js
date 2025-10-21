@@ -190,7 +190,7 @@ function payment(chatId) {
       ]
     }
   };
-  bot.sendMessage(chatId, 'Выберите способ оплаты:\nВнимание, платежи через СБП\n.', options);
+  bot.sendMessage(chatId, 'Выберите способ оплаты:', options);
 };
 
 // Оплата по карте
@@ -245,7 +245,7 @@ function payment_sbp(chatId) {
       inline_keyboard: [[{ text: 'Назад', callback_data: 'payment' }]]
     }
   };
-  bot.sendMessage(chatId, `Оплата производится через СБП.\nВведите сумму платежа без копеек:\nВнимание, платежи через СБП\nпроходят с задержкой до 12 часов.`, options);
+  bot.sendMessage(chatId, `Оплата производится через СБП.\nВведите сумму платежа без копеек:`, options);
 
   // Ожидание ввода суммы от пользователя
   bot.once('message', async (msg) => {
