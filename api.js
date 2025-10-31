@@ -3,9 +3,42 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const bodyParser = require('body-parser');
-const { v4: uuidv4 } = require('uuid'); // добавляем в начало файла
 
+// --- Расширенное логирование axios ---
+axios.interceptors.request.use(config => {
+  console.log(`\x1b[36m[HTTP ➡️  ${config.method?.toUpperCase() || 'GET'}]\x1b[0m ${config.url}`);
+  if (config.data) {
+    console.log('\x1b[90m📤 Body:\x1b[0m', JSON.stringify(config.data, null, 2));
+  }
+  if (config.headers?.Cookie) {
+    console.log('\x1b[90m🍪 Cookie present\x1b[0m');
+  }
+  return config;
+}, error => {
+  console.error('\x1b[31m❌ Ошибка перед отправкой запроса:\x1b[0m', error.message);
+  return Promise.reject(error);
+});
+
+axios.interceptors.response.use(response => {
+  console.log(`\x1b[32m[HTTP ⬅️  ${response.status}]\x1b[0m ${response.config.url}`);
+  if (response.data && typeof response.data === 'object') {
+    console.log('\x1b[90m📥 Ответ:\x1b[0m', JSON.stringify(response.data).slice(0, 400) + '...');
+  }
+  return response;
+}, error => {
+  const status = error.response?.status || 'NO_STATUS';
+  const url = error.config?.url || 'NO_URL';
+  console.error(`\x1b[31m[HTTP ⬅️  ${status} ERROR]\x1b[0m ${url}`);
+  if (error.response?.data) {
+    console.error('\x1b[90m📥 Ответ с ошибкой:\x1b[0m', JSON.stringify(error.response.data, null, 2));
+  } else {
+    console.error('\x1b[31m❌ Ошибка без ответа:\x1b[0m', error.message);
+  }
+  return Promise.reject(error);
+});
+
+const bodyParser = require('body-parser');
+const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = 3332;
 
@@ -50,25 +83,24 @@ async function loginToPanel(config) {
   const serverKey = config === SERVER_CONFIGS.NL ? 'NL' : 'DE';
   const serverState = SERVER_STATES[serverKey];
   
+  console.log(`🔐 [${serverKey}] Авторизация в панели: ${config.PANEL_URL}`);
+
   try {
-    console.log(`🔐 Попытка авторизации в 3x-ui (${config.PANEL_URL})...`);
     const res = await axios.post(`${config.PANEL_URL}/login`, {
       username: config.LOGIN_USERNAME,
       password: config.LOGIN_PASSWORD
-    }, {
-      withCredentials: true
-    });
+    }, { withCredentials: true });
 
     const setCookie = res.headers['set-cookie'];
     if (setCookie) {
       serverState.cookie = setCookie.map(c => c.split(';')[0]).join('; ');
       serverState.lastLoginTime = Date.now();
-      console.log(`✅ Авторизация успешна на сервере ${serverKey}. Cookie сохранена.`);
+      console.log(`✅ [${serverKey}] Авторизация успешна`);
     } else {
-      console.error('❌ Авторизация прошла, но cookie не получена.');
+      console.warn(`⚠️ [${serverKey}] Cookie не получена`);
     }
   } catch (err) {
-    console.error('❌ Ошибка при авторизации в панель:', err.response?.data || err.message);
+    console.error(`❌ [${serverKey}] Ошибка при авторизации:`, err.response?.data || err.message);
     throw err;
   }
 }
@@ -77,22 +109,31 @@ async function loginToPanel(config) {
 async function fetchWithAuth(config, serverConfig) {
   const serverKey = serverConfig === SERVER_CONFIGS.NL ? 'NL' : 'DE';
   const serverState = SERVER_STATES[serverKey];
-  
+
+  console.log(`🌐 [${serverKey}] Запрос: ${config.method?.toUpperCase() || 'GET'} ${config.url}`);
+
   config.headers = config.headers || {};
-  config.headers.Cookie = serverState.cookie;
+  if (serverState.cookie) {
+    config.headers.Cookie = serverState.cookie;
+  } else {
+    console.warn(`⚠️ [${serverKey}] Cookie отсутствует — пробуем авторизацию`);
+    await loginToPanel(serverConfig);
+    config.headers.Cookie = SERVER_STATES[serverKey].cookie;
+  }
 
   try {
     const response = await axios(config);
+    console.log(`✅ [${serverKey}] Успешный ответ: ${response.status}`);
     return response;
   } catch (err) {
-    if (err.response && err.response.status === 401) {
-      console.warn('⚠️ Cookie истекла, повторная авторизация...');
+    console.error(`❌ [${serverKey}] Ошибка при запросе: ${err.message}`);
+    if (err.response?.status === 401) {
+      console.warn(`⚠️ [${serverKey}] Cookie истекла, авторизуемся заново...`);
       await loginToPanel(serverConfig);
       config.headers.Cookie = SERVER_STATES[serverKey].cookie;
       return axios(config);
-    } else {
-      throw err;
     }
+    throw err;
   }
 }
 

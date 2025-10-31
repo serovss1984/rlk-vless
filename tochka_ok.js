@@ -6,6 +6,7 @@ const jwkToPem = require('jwk-to-pem');
 const db = require('./config/db');
 const fs = require('fs');
 const path = require('path');
+const cron = require('node-cron');
 
 // Конфигурация для бота Telegram
 const TELEGRAM_BOT_API = process.env.TELEGRAM_BOT_API;
@@ -19,6 +20,24 @@ const sendTelegramNotification = (chatId, message) => {
     text: message,
   })
 };
+
+let adminChatIds = [];
+
+// Загрузка Telegram ID администраторов
+const loadAdminChatIds = () => {
+  db.query('SELECT chatId FROM users WHERE admin = 1', (err, results) => {
+    if (err) {
+      console.error('Ошибка загрузки администраторов:', err);
+      return;
+    }
+
+    adminChatIds = results.map(row => row.chatId.toString());
+    console.log(`Администраторы загружены: ${adminChatIds.join(', ')}`);
+  });
+};
+
+// Загружаем админов при старте
+loadAdminChatIds();
 
 const app = express();
 app.use(bodyParser.text({ type: '*/*' }));
@@ -79,34 +98,133 @@ async function getUserByChatId(chatId) {
     });
 }
 
-async function updateBalance(chatId, paymentAmount, paymentDate) {
-    try {
-        const user = await getUserByChatId(chatId);
-        const newBalance = parseFloat(user.balance) + parseFloat(paymentAmount);
+// Функция для обновления баланса пользователя с реферальными начислениями
+async function updateBalance(chatId, paymentAmount, paymentDate, operationId) {
+  console.log(`🔄 Обновление баланса для ${chatId}`);
+  
+  try {
+    const user = await getUserByChatId(chatId);
+    const currentBalance = parseFloat(user.balance) || 0;
+    const paymentValue = parseFloat(paymentAmount);
+    const newBalance = currentBalance + paymentValue;
 
-        const query = `
-            UPDATE users 
-            SET balance = ?, lastPaymentDate = ?, paymentAmount = ?, adminWhoBill = ?
-            WHERE chatId = ?`;
+    console.log(`💰 Баланс: ${currentBalance} + ${paymentValue} = ${newBalance}`);
+    console.log(`📋 Данные пользователя:`, {
+      chatId: user.chatId,
+      invited_by: user.invited_by,
+      name: user.name
+    });
 
-        return new Promise((resolve, reject) => {
-            db.query(query, [newBalance, paymentDate, paymentAmount, 'Tochka', chatId], (err) => {
-                if (err) {
-                    console.error('Ошибка обновления баланса:', err);
-                    reject(err);
-                } else {
-                    const message = `Ваш баланс успешно обновлен! Новая сумма: ${newBalance.toFixed(2)}. Сумма вашего платежа: ${parseFloat(paymentAmount).toFixed(2)}. Спасибо за пополнение!`;
-                    sendTelegramNotification(chatId, message);
-                    sendTelegramNotification(5906119921, message);
-                    console.log(message);
-                    resolve(newBalance);
-                }
-            });
+    // --- Проверяем есть ли реферер ---
+    let refBonus = 0;
+    let referrerId = null;
+    let referrerName = '';
+    let percent = 0;
+
+    if (user.invited_by && user.invited_by !== '0' && user.invited_by !== null) {
+      referrerId = user.invited_by;
+      console.log(`👥 Найден реферер: ${referrerId}`);
+
+      try {
+        // Получаем процент из таблицы plans (по plan_id пользователя)
+        const planId = user.plan_id || 2; // fallback = 2 если нет plan_id
+        const planQuery = 'SELECT precent FROM plans WHERE id = ?';
+
+        const planResults = await new Promise((resolve, reject) => {
+          db.query(planQuery, [planId], (err, results) => {
+            if (err) return reject(err);
+            resolve(results);
+          });
         });
-    } catch (error) {
-        console.error('Ошибка в updateBalance:', error.message);
-        throw error;
+
+        if (planResults.length > 0) {
+          percent = parseFloat(planResults[0].precent) || 0;
+          refBonus = (paymentValue * percent) / 100;
+          console.log(`🎯 Реферальный процент: ${percent}% от ${paymentValue} = ${refBonus.toFixed(2)} руб.`);
+        } else {
+          console.log(`⚠️ План с id=${planId} не найден, бонус не начисляется`);
+        }
+
+        const referrer = await getUserByChatId(referrerId);
+        referrerName = referrer.name || `пользователь ${referrerId}`;
+      } catch (refError) {
+        console.error('❌ Ошибка получения данных реферера:', refError);
+      }
+    } else {
+      console.log('ℹ️ Реферер не указан, бонус не начисляется');
     }
+
+    // --- Обновляем основной баланс ---
+    const updateQuery = `
+        UPDATE users 
+        SET balance = ?, lastPaymentDate = ?, paymentAmount = ?, adminWhoBill = ?
+        WHERE chatId = ?`;
+
+    await new Promise((resolve, reject) => {
+      db.query(updateQuery, [newBalance, paymentDate, paymentAmount, 'Yoomoney', chatId], (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+
+    console.log(`✅ Основной баланс обновлен в БД`);
+
+    // --- Уведомляем пользователя ---
+    const userMessage = `💰 Баланс успешно пополнен!\n💳 Сумма: ${paymentValue.toFixed(2)} руб.\n💎 Новый баланс: ${newBalance.toFixed(2)} руб.\n\nСпасибо за доверие! 😊`;
+    await sendTelegramNotification(chatId, userMessage);
+
+    // --- Начисляем бонус, если есть ---
+    if (refBonus > 0 && referrerId) {
+      console.log(`💰 Начисляем реферальный бонус ${refBonus.toFixed(2)} руб. пользователю ${referrerId}`);
+
+      await new Promise((resolve, reject) => {
+        db.query(
+          'UPDATE users SET ref_balance = ref_balance + ? WHERE chatId = ?',
+          [refBonus, referrerId],
+          (err) => (err ? reject(err) : resolve())
+        );
+      });
+
+      const refMessage = 
+        `🎉 По вашей ссылке пополнен баланс!\n\n` +
+        `👤 Пользователь: ${user.name || `ID ${chatId}`}\n` +
+        `💳 Сумма пополнения: ${paymentValue.toFixed(2)} руб.\n` +
+        `📊 Реферальный процент: ${percent}%\n` +
+        `💸 Ваш бонус: ${refBonus.toFixed(2)} руб.\n\n` +
+        `💡 Средства доступны в разделе "💳 Оплата"`;
+
+      await sendTelegramNotification(referrerId, refMessage);
+      console.log(`✅ Реферер уведомлён о бонусе`);
+    }
+
+    // --- Уведомляем всех администраторов ---
+    let adminMessage = 
+      `📢 Новый платеж!\n` +
+      `👤 Пользователь: ${user.name || chatId}\n` +
+      `💳 Сумма: ${paymentValue.toFixed(2)} руб.\n` +
+      `💎 Баланс: ${newBalance.toFixed(2)} руб.\n` +
+      `🆔 Операция: ${operationId}`;
+
+    if (refBonus > 0) {
+      adminMessage += `\n🎯 Реферальный бонус: ${refBonus.toFixed(2)} руб. → ${referrerName} (${referrerId})`;
+    } else {
+      adminMessage += `\nℹ️ Реферальный бонус: не начислен`;
+    }
+
+    console.log(`📤 Уведомляем администраторов (${adminChatIds.join(', ')})...`);
+    const adminPromises = adminChatIds.map(adminId => 
+      sendTelegramNotification(adminId, adminMessage)
+    );
+    await Promise.allSettled(adminPromises);
+    console.log(`✅ Все администраторы уведомлены`);
+
+    console.log(`✅ Баланс обновлён для ${chatId}: ${newBalance.toFixed(2)} ₽`);
+    return newBalance;
+
+  } catch (error) {
+    console.error('❌ Ошибка в updateBalance:', error);
+    throw error;
+  }
 }
 
 function formatDateForMySQL(isoString) {
@@ -177,3 +295,6 @@ loadPublicKey().then(() => {
 }).catch(error => {
   console.error('❌ Ошибка инициализации сервера:', error.message);
 });
+
+// Обновляем список админов каждые 5 минут
+cron.schedule('*/5 * * * *', loadAdminChatIds);
